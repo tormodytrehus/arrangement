@@ -1,0 +1,97 @@
+name: Oppdater arrangementsfeed
+
+on:
+  schedule:
+    - cron: "0 15 * * 1-5"
+      timezone: "Europe/Oslo"
+    - cron: "30 8 * * 5"
+      timezone: "Europe/Oslo"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Hvilken oversikt skal lages?
+        required: true
+        default: daily
+        type: choice
+        options:
+          - daily
+          - weekend
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: arrangementsfeed
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Hent repository
+        uses: actions/checkout@v4
+
+      - name: Sett opp Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kjør tester
+        run: python -m unittest discover -s tests -v
+
+      - name: Velg varseltype
+        id: mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_MODE: ${{ inputs.mode }}
+          SCHEDULE_EXPRESSION: ${{ github.event.schedule }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            mode="$MANUAL_MODE"
+          elif [[ "$SCHEDULE_EXPRESSION" == "30 8 * * 5" ]]; then
+            mode="weekend"
+          else
+            mode="daily"
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Lag RSS-feed
+        env:
+          FEED_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/feed.xml
+        run: >-
+          python src/event_feed.py
+          --mode "${{ steps.mode.outputs.mode }}"
+          --output docs/feed.xml
+          --history docs/history.json
+
+      - name: Lagre nye RSS-innlegg
+        shell: bash
+        run: |
+          if git diff --quiet -- docs/feed.xml docs/history.json; then
+            echo "Ingen nye arrangementer å lagre."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/feed.xml docs/history.json
+            git commit -m "Oppdater arrangementsfeed"
+            git push
+          fi
+
+      - name: Konfigurer GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Last opp feed
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Publiser feed
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,11 +1,16 @@
 <?xml version='1.0' encoding='utf-8'?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
   <channel>
     <title>Arrangementer i Orkland, Skaun, Heim og Rindal</title>
-    <link>https://example.invalid/feed.xml</link>
+    <link>https://tormodytrehus.github.io/arrangement/feed.xml</link>
     <description>Hverdags- og helgevarsler fra lokale arrangementskalendere.</description>
     <language>nb-NO</language>
-    <atom:link href="https://example.invalid/feed.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="https://tormodytrehus.github.io/arrangement/feed.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>I ettermiddag og kveld – mandag 14. september</title>
+      <description>&lt;h3&gt;Heim&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;&lt;strong&gt;17:00–19:00&lt;/strong&gt;: &lt;a href="https://iheim.no/hendelse?Id=2557601"&gt;Mandagsgolf&lt;/a&gt; – Ånesøyan diskgolfpark&lt;/li&gt;&lt;li&gt;&lt;strong&gt;18:00&lt;/strong&gt;: &lt;a href="https://iheim.no/hendelse?Id=2567222"&gt;Hemne turmarsjklubb&lt;/a&gt; – Kiwi&lt;/li&gt;&lt;li&gt;&lt;strong&gt;18:00–19:55&lt;/strong&gt;: &lt;a href="https://iheim.no/hendelse?Id=2703368"&gt;KINO: Vaiana&lt;/a&gt; – kulØr&amp;#x27;n, Øragata, Kyrksæterøra&lt;/li&gt;&lt;li&gt;&lt;strong&gt;20:00–21:50&lt;/strong&gt;: &lt;a href="https://iheim.no/hendelse?Id=2703369"&gt;KINO: En nasjon i sjakk&lt;/a&gt; – kulØr&amp;#x27;n, Øragata, Kyrksæterøra&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;Rindal&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;&lt;strong&gt;Mon 14.09 08:00–Sun 20.09 18:30&lt;/strong&gt;: &lt;a href="https://www.kulturboksen.no/Kalender/CalendarEvent.aspx?Id=1248&amp;amp;MId1=1333"&gt;Fotballkamper i uke 38&lt;/a&gt; – Trollbanen og Skogsletta&lt;/li&gt;&lt;li&gt;&lt;strong&gt;Mon 14.09 10:00–Sun 04.10 21:00&lt;/strong&gt;: &lt;a href="https://www.kulturboksen.no/Kalender/CalendarEvent.aspx?Id=1473&amp;amp;MId1=1333"&gt;Høst- vintersesong i Rindalshuset&lt;/a&gt; – Rindalshuset, Biblioteket, Frivilligsentralen&lt;/li&gt;&lt;/ul&gt;</description>
+      <guid isPermaLink="false">orkland-region-rss:daily:2026-09-14:2026-09-14</guid>
+      <pubDate>Mon, 14 Sep 2026 15:53:43 +0000</pubDate>
+    </item>
   </channel>
 </rss>
-

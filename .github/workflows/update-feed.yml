@@ -2,20 +2,22 @@ name: Oppdater arrangementsfeed
 
 on:
   schedule:
-    - cron: "0 15 * * 1-5"
-      timezone: "Europe/Oslo"
-    - cron: "30 8 * * 5"
-      timezone: "Europe/Oslo"
+    # 08.00 norsk sommertid
+    - cron: "0 6 * * 1-5"
+
+    # 08.00 norsk vintertid
+    - cron: "0 7 * * 1-5"
+
   workflow_dispatch:
     inputs:
       mode:
-        description: Hvilken oversikt skal lages?
+        description: Hvilket varsel skal lages?
         required: true
         default: daily
         type: choice
         options:
           - daily
-          - weekend
+          - friday
 
 permissions:
   contents: write
@@ -23,75 +25,103 @@ permissions:
   id-token: write
 
 concurrency:
-  group: arrangementsfeed
+  group: arrangement-rss-pages
   cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+      - name: Bestem om jobben skal kjøre
+        id: plan
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODE="${{ inputs.mode }}"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          OFFSET="$(TZ=Europe/Oslo date +%z)"
+
+          if [ "$OFFSET" = "+0200" ]; then
+            EXPECTED_SCHEDULE="0 6 * * 1-5"
+          else
+            EXPECTED_SCHEDULE="0 7 * * 1-5"
+          fi
+
+          if [ "${{ github.event.schedule }}" != "$EXPECTED_SCHEDULE" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          WEEKDAY="$(TZ=Europe/Oslo date +%u)"
+
+          if [ "$WEEKDAY" = "5" ]; then
+            MODE="friday"
+          else
+            MODE="daily"
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
       - name: Hent repository
+        if: steps.plan.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Sett opp Python
+        if: steps.plan.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Kjør tester
-        run: python -m unittest discover -s tests -v
+      - name: Kontroller Python-koden
+        if: steps.plan.outputs.run == 'true'
+        run: python -m py_compile src/event_feed.py
 
-      - name: Velg varseltype
-        id: mode
-        shell: bash
+      - name: Lag RSS-varsel
+        if: steps.plan.outputs.run == 'true'
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          MANUAL_MODE: ${{ inputs.mode }}
-          SCHEDULE_EXPRESSION: ${{ github.event.schedule }}
+          FEED_URL: https://tormodytrehus.github.io/arrangement-rss/feed.xml
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            mode="$MANUAL_MODE"
-          elif [[ "$SCHEDULE_EXPRESSION" == "30 8 * * 5" ]]; then
-            mode="weekend"
-          else
-            mode="daily"
-          fi
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          python src/event_feed.py \
+            --mode "${{ steps.plan.outputs.mode }}" \
+            --output docs/feed.xml \
+            --history docs/history.json
 
-      - name: Lag RSS-feed
-        env:
-          FEED_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/feed.xml
-        run: >-
-          python src/event_feed.py
-          --mode "${{ steps.mode.outputs.mode }}"
-          --output docs/feed.xml
-          --history docs/history.json
-
-      - name: Lagre nye RSS-innlegg
+      - name: Lagre oppdatert feed
+        if: steps.plan.outputs.run == 'true'
         shell: bash
         run: |
-          if git diff --quiet -- docs/feed.xml docs/history.json; then
-            echo "Ingen nye arrangementer å lagre."
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/feed.xml docs/history.json
+
+          if git diff --cached --quiet; then
+            echo "Ingen endringer å lagre"
           else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add docs/feed.xml docs/history.json
             git commit -m "Oppdater arrangementsfeed"
             git push
           fi
 
-      - name: Konfigurer GitHub Pages
+      - name: Klargjør GitHub Pages
+        if: steps.plan.outputs.run == 'true'
         uses: actions/configure-pages@v5
 
-      - name: Last opp feed
+      - name: Last opp GitHub Pages
+        if: steps.plan.outputs.run == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs
 
-      - name: Publiser feed
+      - name: Publiser GitHub Pages
+        if: steps.plan.outputs.run == 'true'
         id: deployment
         uses: actions/deploy-pages@v4

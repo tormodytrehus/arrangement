@@ -55,6 +55,16 @@ NORWEGIAN_WEEKDAYS = [
     "søndag",
 ]
 
+NORWEGIAN_WEEKDAYS_SHORT = [
+    "man",
+    "tir",
+    "ons",
+    "tor",
+    "fre",
+    "lør",
+    "søn",
+]
+
 
 @dataclass(frozen=True)
 class Event:
@@ -176,12 +186,7 @@ def fetch_orkland(start_day: date, end_day: date) -> list[Event]:
             continue
 
         start = parse_iso_datetime(raw["startDate"])
-        end = (
-            parse_iso_datetime(raw["endDate"])
-            if raw.get("endDate")
-            else start
-        )
-
+        end = parse_iso_datetime(raw["endDate"]) if raw.get("endDate") else start
         venue = raw.get("venue") or {}
         slug = raw.get("event_slug") or str(raw.get("id", ""))
 
@@ -194,9 +199,7 @@ def fetch_orkland(start_day: date, end_day: date) -> list[Event]:
             Event(
                 source="Visit Orkland",
                 municipality="Orkland",
-                source_id=(
-                    f"orkland:{raw.get('id', slug)}:{start.isoformat()}"
-                ),
+                source_id=f"orkland:{raw.get('id', slug)}:{start.isoformat()}",
                 title=(raw.get("title_nb") or "Uten tittel").strip(),
                 start=start,
                 end=max(end, start),
@@ -473,9 +476,10 @@ def notification_window(
     now: datetime,
 ) -> tuple[datetime, datetime]:
     local_now = now.astimezone(OSLO)
+    weekday = local_now.weekday()
 
     if mode == "daily":
-        if local_now.weekday() > 4:
+        if weekday > 4:
             raise ValueError(
                 "Dagsvarsel skal bare kjøres mandag–fredag"
             )
@@ -485,7 +489,7 @@ def notification_window(
         return (
             datetime.combine(
                 day,
-                datetime_time(15, 30),
+                datetime_time.min,
                 OSLO,
             ),
             datetime.combine(
@@ -495,9 +499,31 @@ def notification_window(
             ),
         )
 
+    if mode == "friday":
+        if weekday != 4:
+            raise ValueError(
+                "Fredagsvarsel skal bare kjøres på fredag"
+            )
+
+        friday = local_now.date()
+        sunday = friday + timedelta(days=2)
+
+        return (
+            datetime.combine(
+                friday,
+                datetime_time.min,
+                OSLO,
+            ),
+            datetime.combine(
+                sunday,
+                datetime_time(23, 59, 59),
+                OSLO,
+            ),
+        )
+
     if mode == "weekend":
         days_until_saturday = (
-            5 - local_now.weekday()
+            5 - weekday
         ) % 7
 
         saturday = (
@@ -600,7 +626,12 @@ def fetch_all(
         ),
         (
             "Kulturboksen",
-            lambda: fetch_rindal(mode),
+            lambda: (
+                fetch_rindal("daily")
+                + fetch_rindal("weekend")
+                if mode == "friday"
+                else fetch_rindal(mode)
+            ),
         ),
     ]
 
@@ -653,12 +684,29 @@ def item_title(
 ) -> str:
     if mode == "daily":
         return (
-            "I ettermiddag og kveld – "
+            "Dagens arrangementer – "
             f"{norwegian_date(window_start.date())}"
         )
 
     first = window_start.date()
     last = window_end.date()
+
+    if mode == "friday":
+        if first.month == last.month:
+            month = list(NORWEGIAN_MONTHS)[
+                first.month - 1
+            ]
+
+            return (
+                f"Fredag–søndag {first.day}.–"
+                f"{last.day}. {month}"
+            )
+
+        return (
+            "Fredag–søndag "
+            f"{norwegian_date(first, include_weekday=False)}–"
+            f"{norwegian_date(last, include_weekday=False)}"
+        )
 
     if first.month == last.month:
         month = list(NORWEGIAN_MONTHS)[
@@ -675,6 +723,14 @@ def item_title(
         f"{norwegian_date(first, include_weekday=False)}–"
         f"{norwegian_date(last, include_weekday=False)}"
     )
+
+
+def norwegian_short_datetime(value: datetime) -> str:
+    weekday = NORWEGIAN_WEEKDAYS_SHORT[
+        value.weekday()
+    ]
+
+    return f"{weekday} {value:%d.%m %H:%M}"
 
 
 def clock_range(event: Event) -> str:
@@ -695,8 +751,8 @@ def clock_range(event: Event) -> str:
         )
 
     return (
-        f"{event.start:%a %d.%m %H:%M}–"
-        f"{event.end:%a %d.%m %H:%M}"
+        f"{norwegian_short_datetime(event.start)}–"
+        f"{norwegian_short_datetime(event.end)}"
     )
 
 
@@ -713,13 +769,14 @@ def description_html(events: list[Event]) -> str:
 
     for municipality in municipalities:
         parts.append(
-            f"<h3>{html.escape(municipality)}</h3><ul>"
+            f"<p><strong>[{html.escape(municipality)}]"
+            "</strong><br>"
         )
 
         municipality_events = (
-            candidate
-            for candidate in events
-            if candidate.municipality == municipality
+            event
+            for event in events
+            if event.municipality == municipality
         )
 
         for event in municipality_events:
@@ -730,14 +787,14 @@ def description_html(events: list[Event]) -> str:
             )
 
             parts.append(
-                "<li>"
+                "• "
                 f"<strong>{html.escape(clock_range(event))}</strong>: "
                 f'<a href="{html.escape(event.url, quote=True)}">'
                 f"{html.escape(event.title)}</a>"
-                f"{location}</li>"
+                f"{location}<br>"
             )
 
-        parts.append("</ul>")
+        parts.append("</p>")
 
     return "".join(parts)
 
@@ -778,6 +835,7 @@ def default_feed_url() -> str:
 
     if "/" in repository:
         owner, name = repository.split("/", 1)
+
         return (
             f"https://{owner}.github.io/"
             f"{name}/feed.xml"
@@ -1018,11 +1076,14 @@ def check_sources(now: datetime) -> None:
     for name, fetcher in checks:
         try:
             events = fetcher()
+
             print(
-                f"OK  {name}: {len(events)} treff"
+                f"OK  {name}: "
+                f"{len(events)} treff"
             )
         except Exception as exc:
             failed = True
+
             print(
                 f"FEIL {name}: {exc}",
                 file=sys.stderr,
@@ -1041,7 +1102,11 @@ def parse_args(
 
     parser.add_argument(
         "--mode",
-        choices=("daily", "weekend"),
+        choices=(
+            "daily",
+            "friday",
+            "weekend",
+        ),
     )
 
     parser.add_argument(

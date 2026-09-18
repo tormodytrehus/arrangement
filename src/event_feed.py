@@ -756,9 +756,28 @@ def clock_range(event: Event) -> str:
     )
 
 
-def description_html(events: list[Event]) -> str:
-    parts: list[str] = []
+def multi_day_range(event: Event) -> str:
+    start_date = norwegian_date(event.start.date()).capitalize()
+    end_date = norwegian_date(event.end.date()).capitalize()
 
+    if (
+        event.start.time() == datetime_time.min
+        and event.end.time() >= datetime_time(23, 59)
+    ):
+        return f"{start_date}–{end_date}"
+
+    return (
+        f"{start_date} kl. {event.start:%H:%M}–"
+        f"{end_date} kl. {event.end:%H:%M}"
+    )
+
+
+def append_event_groups(
+    parts: list[str],
+    events: list[Event],
+    *,
+    multi_day: bool = False,
+) -> None:
     municipalities = sorted(
         {event.municipality for event in events},
         key=lambda value: MUNICIPALITY_ORDER.get(
@@ -769,34 +788,88 @@ def description_html(events: list[Event]) -> str:
 
     for municipality in municipalities:
         parts.append(
-            f"<p><strong>[{html.escape(municipality)}]"
-            "</strong><br>"
+            '<p style="margin: 12px 0 4px">'
+            f"<strong>📍 {html.escape(municipality)}</strong>"
+            "</p>\n"
         )
 
-        municipality_events = (
-            event
-            for event in events
-            if event.municipality == municipality
+        municipality_events = sorted(
+            (
+                event
+                for event in events
+                if event.municipality == municipality
+            ),
+            key=lambda event: (
+                event.start,
+                event.title.casefold(),
+            ),
         )
 
         for event in municipality_events:
             location = (
-                f" – {html.escape(event.location)}"
+                f"<br>Sted: {html.escape(event.location)}"
                 if event.location
                 else ""
             )
-
-            parts.append(
-                "• "
-                f"<strong>{html.escape(clock_range(event))}</strong>: "
-                f'<a href="{html.escape(event.url, quote=True)}">'
-                f"{html.escape(event.title)}</a>"
-                f"{location}<br>"
+            time_label = (
+                multi_day_range(event)
+                if multi_day
+                else clock_range(event)
             )
 
-        parts.append("</p>")
+            parts.append(
+                '<p style="margin: 4px 0 12px">'
+                f"🕒 <strong>{html.escape(time_label)}</strong><br>"
+                f'<a href="{html.escape(event.url, quote=True)}">'
+                f"{html.escape(event.title)}</a>"
+                f"{location}</p>\n"
+            )
 
-    return "".join(parts)
+
+def description_html(events: list[Event]) -> str:
+    parts: list[str] = []
+
+    single_day_events = [
+        event
+        for event in events
+        if event.start.date() == event.end.date()
+    ]
+    multi_day_events = [
+        event
+        for event in events
+        if event.start.date() != event.end.date()
+    ]
+
+    event_days = sorted(
+        {event.start.date() for event in single_day_events}
+    )
+
+    for event_day in event_days:
+        heading = norwegian_date(event_day).upper()
+        parts.append(
+            '<h2 style="margin: 20px 0 8px">'
+            f"📅 {html.escape(heading)}</h2>\n"
+        )
+
+        day_events = [
+            event
+            for event in single_day_events
+            if event.start.date() == event_day
+        ]
+        append_event_groups(parts, day_events)
+
+    if multi_day_events:
+        parts.append(
+            '<h2 style="margin: 20px 0 8px">'
+            "📆 PÅGÅR FLERE DAGER</h2>\n"
+        )
+        append_event_groups(
+            parts,
+            multi_day_events,
+            multi_day=True,
+        )
+
+    return "\n".join(parts)
 
 
 def load_history(
@@ -964,32 +1037,6 @@ def write_feed(
         f"{window_end.date()}"
     )
 
-    history = load_history(history_path)
-
-    if any(
-        entry.get("guid") == guid
-        for entry in history
-    ):
-        rendered = render_feed(
-            history,
-            feed_url,
-        )
-
-        if (
-            output_path.exists()
-            and output_path.read_bytes() == rendered
-        ):
-            return False
-
-        output_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        output_path.write_bytes(rendered)
-
-        return True
-
     entry = {
         "guid": guid,
         "title": item_title(
@@ -1003,7 +1050,44 @@ def write_feed(
         ),
     }
 
-    history.insert(0, entry)
+    history = load_history(history_path)
+    existing_index = next(
+        (
+            index
+            for index, existing in enumerate(history)
+            if existing.get("guid") == guid
+        ),
+        None,
+    )
+
+    if existing_index is None:
+        history.insert(0, entry)
+    else:
+        existing = history[existing_index]
+        content_is_unchanged = (
+            existing.get("title") == entry["title"]
+            and existing.get("description")
+            == entry["description"]
+        )
+
+        if content_is_unchanged:
+            rendered = render_feed(history, feed_url)
+
+            if (
+                output_path.exists()
+                and output_path.read_bytes() == rendered
+            ):
+                return False
+
+            output_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            output_path.write_bytes(rendered)
+            return True
+
+        history[existing_index] = entry
+
     history = history[:60]
 
     output_path.parent.mkdir(
